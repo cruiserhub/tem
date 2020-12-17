@@ -39,7 +39,7 @@ def parameters():
     # Number of steps to roll out before backpropagation through time
     params['n_rollout'] = 20
     # Batch size: number of walks for training simultaneously
-    params['batch_size'] = 16    
+    params['batch_size'] = 16
     # Minimum length of a walk on one environment. Walk lengths are sampled uniformly from a window that shifts down until its lower limit is walk_it_min at the end of training
     params['walk_it_min'] = 25
     # Maximum length of a walk on one environment. Walk lengths are sampled uniformly from a window that starts with its upper limit at walk_it_max in the beginning of training, then shifts down
@@ -248,4 +248,4 @@ Or in the case of row vectors, which is what you'd do for batch calculation:
     W_repeat = np.kron(np.eye(4), np.ones((1,3)))
     W_tile = np.kron(np.ones((1,4)),np.eye(3))
     out4 = np.matmul(g, W_repeat) * np.matmul(x,W_tile) # This is batch-proof        
-'''     
+'''

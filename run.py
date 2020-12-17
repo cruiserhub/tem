@@ -104,6 +104,7 @@ prev_iter = None
 
 # Train TEM on walks in different environment
 for i in range(i_start, params['train_it']):
+    print('iteration: ', i)
     
     # Get start time for function timing
     start_time = time.time()
@@ -150,6 +151,8 @@ for i in range(i_start, params['train_it']):
         chunk[i_step][1] = torch.stack(step[1], dim=0)    
         
     # Forward-pass this walk through the network
+    # print('chunk', len(chunk), len(chunk[1]), len(chunk[1][1]), chunk[1][0], chunk[1][1].shape)
+    # chunk [20, 3, 16] * [16, 45]
     forward = tem(chunk, prev_iter)    
     
     # Accumulate loss from forward pass
