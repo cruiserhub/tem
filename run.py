@@ -17,7 +17,7 @@ import importlib.util
 import world
 import utils
 import parameters
-import model as model    
+import model2 as model
 
 # Set random seeds for reproducibility
 np.random.seed(0)
@@ -103,8 +103,10 @@ walks = [env.generate_walks(params['n_rollout']*np.random.randint(params['walk_i
 prev_iter = None
 
 # Train TEM on walks in different environment
+n_loss = 8
+loss_recording = [[] for _ in range(n_loss)]
 for i in range(i_start, params['train_it']):
-    print('iteration: ', i)
+    # print('iteration: ', i)
     
     # Get start time for function timing
     start_time = time.time()
@@ -152,7 +154,7 @@ for i in range(i_start, params['train_it']):
         
     # Forward-pass this walk through the network
     # print('chunk', len(chunk), len(chunk[1]), len(chunk[1][1]), chunk[1][0], chunk[1][1].shape)
-    # chunk [20, 3, 16] * [16, 45]
+    # chunk [20] * [x[16, 45], g[16], a[16]]
     forward = tem(chunk, prev_iter)    
     
     # Accumulate loss from forward pass
@@ -166,7 +168,7 @@ for i in range(i_start, params['train_it']):
         # Only include loss for locations that have been visited before
         for env_i, env_visited in enumerate(visited):
             if env_visited[step.g[env_i]['id']]:
-                step_loss.append(loss_weights*torch.stack([l[env_i] for l in step.L]))
+                step_loss.append(loss_weights*torch.stack([l[env_i] for l in step.L[:8]]))
             else:
                 env_visited[step.g[env_i]['id']] = True
         # Stack losses in this step along first dimension, then average across that dimension to get mean loss for this step
@@ -179,7 +181,8 @@ for i in range(i_start, params['train_it']):
     # Reset gradients
     adam.zero_grad()
     # Do backward pass to calculate gradients with respect to total loss of this chunk
-    loss.backward(retain_graph=True)
+    # loss.backward(retain_graph=True)
+    loss.backward()
     # Then do optimiser step to update parameters of model
     adam.step()
     # Update the previous iteration for the next chunk with the final step of this chunk, removing all operation history
@@ -215,6 +218,40 @@ for i in range(i_start, params['train_it']):
         torch.save(tem.state_dict(), model_path + '/tem_' + str(i) + '.pt')
         torch.save(tem.hyper, model_path + '/params_' + str(i) + '.pt')
 
+    # -----------------------plot -----------------------
+    losses = [[] for _ in range(n_loss)]
+    for step in forward:
+        for env_i, env_visited in enumerate(visited):
+            if env_visited[step.g[env_i]['id']]:
+                for j in range(n_loss):
+                    losses[j].append(step.L[j][env_i].item())
+    for j in range(n_loss):
+        # print("%.3f" % np.mean(losses[j]))
+        loss_recording[j].append(np.mean(losses[j]))
+    # print('acc', acc_p)
+    if i % 50 == 0:
+        print('itertaion', i, )
+        print('acc', acc_p, acc_g, acc_gt)
+        import matplotlib.pyplot as plt
+        plt.figure(i//100)
+        for j in range(n_loss):
+            print("%.3f" % np.mean(loss_recording[j][-100:]))
+            raw = np.array(loss_recording[j])
+            raw = (raw - np.min(raw)) / (np.max(raw) - np.min(raw) + 1e-9)
+            raw = np.convolve(raw, np.ones(5))
+            plt.plot(raw[5:-5])
+        print('-------------------------')
+        raw = sum([np.array(loss_recording[j]) for j in range(n_loss)])
+        raw = (raw - np.min(raw)) / (np.max(raw) - np.min(raw) + 1e-9)
+        raw = np.convolve(raw, np.ones(5))
+        plt.plot(raw[5:-5])
+        plt.legend(['L_p_g', 'L_p_x', 'L_x_gen', 'L_x_g', 'L_x_p', 'L_g', 'L_reg_g', 'L_reg_p',
+                    'Loss', 'loss_x3', 'loss_g4'], loc='upper left')
+        plt.savefig('run.png')
+        plt.show()
+
 # Save the final state of the model after training has finished
 torch.save(tem.state_dict(), model_path + '/tem_' + str(i) + '.pt')
 torch.save(tem.hyper, model_path + '/params_' + str(i) + '.pt')
+
+# todo: modified [:8], backward

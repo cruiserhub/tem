@@ -91,7 +91,8 @@ def parameters():
     # Decide whether to use seperate grid modules that recieve shiny information for object vector cells. To disable OVC, set this False, and set n_ovc to [0 for _ in range(len(params['n_g_subsampled']))]
     params['separate_ovc'] = False
     # Standard deviation for initial initial g (which will then be learned)
-    params['g_init_std'] = 0.5
+    # todo: init g to 0
+    params['g_init_std'] = 0.5  # 0.5
     # Standard deviation to initialise hidden to output layer of MLP for inferring new abstract location from memory of grounded location
     params['g_mem_std'] = 0.1
     # Hidden layer size of MLP for abstract location transitions
@@ -173,12 +174,18 @@ def parameters():
         for f, max_i in enumerate(max_iters):
             # Update masks up to maximum iteration
             for i in range(max_i):
-                mask[i][n_p[f]:n_p[f+1]] = 1.0                
+                mask[i][n_p[f]:n_p[f+1]] = 1.0
     # In path integration, abstract location frequency modules can influence the transition of other modules hierarchically (low to high). Set for each frequency module from which other frequencies input is received
-    params['g_connections'] = [[params['f_initial'][f_from] <= params['f_initial'][f_to] for f_from in range(params['n_f_g'])] + [False for _ in range(params['n_f_ovc'])] for f_to in range(params['n_f_g'])]
+    # params['g_connections'] = [[params['f_initial'][f_from] <= params['f_initial'][f_to] for f_from in range(params['n_f_g'])] + [False for _ in range(params['n_f_ovc'])] for f_to in range(params['n_f_g'])]
     # Add connections for separate object vector cell module: only between object vector cell modules - and make those hierarchical too
-    params['g_connections'] = params['g_connections'] + [[False for _ in range(params['n_f_g'])] + [params['f_initial'][f_from] <= params['f_initial'][f_to] for f_from in range(params['n_f_g'], params['n_f'])] for f_to in range(params['n_f_g'], params['n_f'])]
-
+    # params['g_connections'] = params['g_connections'] + [[False for _ in range(params['n_f_g'])] + [params['f_initial'][f_from] <= params['f_initial'][f_to] for f_from in range(params['n_f_g'], params['n_f'])] for f_to in range(params['n_f_g'], params['n_f'])]
+    # todo: test g_connections ---------------
+    params['g_connections'] = [[True, False, False, False, False],
+                               [False, True, False, False, False],
+                               [False, False, True, False, False],
+                               [False, False, False, True, False],
+                               [False, False, False, False, True]]
+    # -------------------------------------------------
     # ---- Static matrices            
     # Matrix for repeating abstract location g to do outer product with sensory information x with elementwise product. Also see (*) note at bottom
     params['W_repeat'] = [torch.tensor(np.kron(np.eye(params['n_g_subsampled'][f]),np.ones((1,params['n_x_f'][f]))), dtype=torch.float) for f in range(params['n_f'])]

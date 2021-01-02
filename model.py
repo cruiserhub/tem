@@ -64,6 +64,11 @@ class Model(torch.nn.Module):
             # Inference memory is identical to generative memory if using common memory, and updated separatedly if not            
             M.append(M[0] if self.hyper['common_memory'] else self.hebbian(M_prev[1], torch.cat(p_inf,dim=1), torch.cat(p_inf_x,dim=1), do_hierarchical_connections=False))
         # Calculate loss of this step
+        # import random
+        # if random.random() > 0.99:
+        #     print(M[1].mean(), M[1].std())
+        #     print(torch.abs(p_inf_x[0][0]).mean(), p_inf_x[0][0].std())
+        #     print('-----------------------')
         L = self.loss(gt_gen, p_gen, x_logits, x, g_inf, p_inf, p_inf_x, M_prev)
         # Return all iteration values
         return L, M, gt_gen, p_gen, x_gen, x_logits, x_inf, g_inf, p_inf
@@ -76,7 +81,9 @@ class Model(torch.nn.Module):
         # Prepare sensory experience for input to memory by normalisation and weighting
         x_ = self.x2x_(x_f)  # n_f * [batch_size, 100]
         # Retrieve grounded location from memory by doing pattern completion on current sensory experience
-        print('x_', x_[0][abs(x_[0]) < 1e-3].__len__() / 1600)
+        # print('x_', x_[0][abs(x_[0]) < 1e-3].__len__() / 1600)
+        # print(self.hyper['p_retrieve_mask_inf'])
+        # print(self.hyper['p_retrieve_mask_gen'])
         p_x = self.attractor(x_, M_prev[1], retrieve_it_mask=self.hyper['p_retrieve_mask_inf']) if self.hyper['use_p_inf'] else None
         # Infer abstract location by combining previous abstract location and grounded location retrieved from memory by current sensory experience
         g = self.inf_g(p_x, g_gen, x, locations)
@@ -121,13 +128,23 @@ class Model(torch.nn.Module):
         L_reg_g = torch.sum(torch.stack([torch.sum(g ** 2, dim=1) for g in g_inf], dim=0), dim=0)
         # And L_reg_p regularisation on L1 norm of p
         L_reg_p = torch.sum(torch.stack([torch.sum(torch.abs(p), dim=1) for p in p_inf], dim=0), dim=0)
+        # import random
+        # if random.random() > 0.99:
+        #     print(p_inf_x[1].abs().mean().item(), p_inf[1].abs().mean().item(),
+        #           g_inf[1].abs().mean().item(), g_gen[1].abs().mean().item())
+        #     print([torch.max(g).item() for g in g_inf], [torch.min(g).item() for g in g_inf])
+        #     print([torch.max(p).item() for p in p_inf], [torch.min(p).item() for p in p_inf])
+        #     print([torch.max(p).item() for p in p_inf_x], [torch.min(p).item() for p in p_inf_x])
+        #     print('-----------------------')
         # Return total loss as list of losses, so you can possibly reweight them
         L = [L_p_g, L_p_x, L_x_gen, L_x_g, L_x_p, L_g, L_reg_g, L_reg_p]
         return L
 
     def init_trainable(self):
         # Scale factor in Laplacian transform for each frequency module. High frequency comes first, low frequency comes last. Learn inverse sigmoid instead of scale factor directly, so domain of alpha is -inf, inf
-        self.alpha = torch.nn.ParameterList([torch.nn.Parameter(torch.tensor(np.log(self.hyper['f_initial'][f] / (1 - self.hyper['f_initial'][f])), dtype=torch.float)) for f in range(self.hyper['n_f'])])
+        # todo: alpha initialization modified
+        # self.alpha = torch.nn.ParameterList([torch.nn.Parameter(torch.tensor(np.log(self.hyper['f_initial'][f] / (1 - self.hyper['f_initial'][f])), dtype=torch.float)) for f in range(self.hyper['n_f'])])
+        self.alpha = torch.nn.ParameterList([torch.nn.Parameter(torch.randn(1)) for f in range(self.hyper['n_f'])])
         # Entorhinal preference weights
         self.w_x = torch.nn.Parameter(torch.tensor(1.0))
         # Entorhinal preference bias
@@ -145,7 +162,8 @@ class Model(torch.nn.Module):
                             hidden_dim=[self.hyper['d_hidden_dim'] for _ in range(self.hyper['n_f'])],
                             bias=[True, False])        
         # Initialise the hidden to output weights as zero, so initially you simply keep the current abstract location to predict the next abstract location
-        self.MLP_D_a.set_weights(1, 0.0)
+        # todo: two testing mlp.set_wegihts have been annotated
+        # self.MLP_D_a.set_weights(1, 0.0)
         # Transition weights without specifying an action for use in generative model with shiny objects
         self.D_no_a = torch.nn.ParameterList([torch.nn.Parameter(torch.zeros(sum([self.hyper['n_g'][f_from] for f_from in range(self.hyper['n_f']) if self.hyper['g_connections'][f_to][f_from]])*self.hyper['n_g'][f_to])) for f_to in range(self.hyper['n_f'])])
         # MLP for standard deviation of transition sample
@@ -155,7 +173,7 @@ class Model(torch.nn.Module):
         # MLP to generate mean of abstract location from downsampled abstract location, obtained by summing grounded location over sensory preferences in inference model
         self.MLP_mu_g_mem = MLP(self.hyper['n_g_subsampled'], self.hyper['n_g'], hidden_dim=[2 * g for g in self.hyper['n_g']])
         # Initialise weights in last layer of MLP_mu_g_mem as truncated normal for each frequency module
-        self.MLP_mu_g_mem.set_weights(-1, [torch.tensor(truncnorm.rvs(-2, 2, size=list(self.MLP_mu_g_mem.w[f][-1].weight.shape), loc=0, scale=self.hyper['g_mem_std']), dtype=torch.float) for f in range(self.hyper['n_f'])])
+        # self.MLP_mu_g_mem.set_weights(-1, [torch.tensor(truncnorm.rvs(-2, 2, size=list(self.MLP_mu_g_mem.w[f][-1].weight.shape), loc=0, scale=self.hyper['g_mem_std']), dtype=torch.float) for f in range(self.hyper['n_f'])])
         # MLP to generate standard deviation of abstract location from two measures (generated observation error and inferred abstract location vector norm) of memory quality
         self.MLP_sigma_g_mem = MLP([2 for _ in self.hyper['n_g_subsampled']], self.hyper['n_g'], activation=[torch.tanh, torch.exp], hidden_dim=[2 * g for g in self.hyper['n_g']])
         # MLP to generate mean of abstract location directly from shiny object presence. Outputs to object vector cell modules if they're separated, else to all abstract location modules
@@ -222,7 +240,7 @@ class Model(torch.nn.Module):
     def gen_p(self, g, M_prev):
         # We want to use g as an index for memory retrieval, but it doesn't have the right dimensions (these are grid cells, we need place cells). We need g_ instead
         g_ = self.g2g_(g)
-        print('g_', g_[0][abs(g_[0]) < 1e-3].__len__() / 1600)
+        # print('g_', g_[0][abs(g_[0]) < 1e-3].__len__() / 1600)
         # Retreive memory: do pattern completion on abstract location to get grounded location    
         mu_p = self.attractor(g_, M_prev, retrieve_it_mask=self.hyper['p_retrieve_mask_gen'])
         sigma_p = self.f_sigma_p(mu_p)
@@ -275,6 +293,11 @@ class Model(torch.nn.Module):
                 # Or simply completely ignore the inference memory here, to test if things are working
                 mu, sigma = mu_g_path[f], sigma_g_path[f]
             # Append mu and sigma to list for all frequency modules
+            # todo: testing inf_g----------------
+            mu = (10 * mu_g_path[f] + mu_g_mem[f]) / 11
+            # mu = mu_g_mem[f]
+            sigma = 0
+            # ----------------
             mu_g.append(mu)
             sigma_g.append(sigma)
         # Finally (though not in paper), also add object vector cell information to inferred abstract location for environments with shiny objects
@@ -444,7 +467,7 @@ class Model(torch.nn.Module):
         # Calculate activation for abstract location, thresholding between -1 and 1
         activation = [torch.clamp(g_f, min=-1, max=1) for g_f in g]
         return activation    
-    
+
     def f_p(self, p):
         # Calculate activation for inferred grounded location, using a leaky relu for sparsity. Either apply to full multi-frequency grounded location or single frequency module
         activation = [utils.leaky_relu(torch.clamp(p_f, min=-1, max=1)) for p_f in p] if type(p) is list else utils.leaky_relu(torch.clamp(p, min=-1, max=1)) 
@@ -473,7 +496,7 @@ class Model(torch.nn.Module):
         # Create new ground memory for attractor network by setting weights to outer product of learned vectors
         # p_inferred corresponds to p in the paper, and p_generated corresponds to p^. 
         # The order of p + p^ and p - p^ is reversed since these are row vectors, instead of column vectors in the paper.
-        print('error', torch.sum(torch.abs(p_generated - p_inferred)))
+        # print('error', torch.sum(torch.abs(p_generated - p_inferred)))
         M_new = torch.squeeze(torch.matmul(torch.unsqueeze(p_inferred + p_generated, 2),torch.unsqueeze(p_inferred - p_generated,1)))
         # Multiply by connection vector, e.g. only keeping weights from low to high frequencies for hierarchical retrieval
         if do_hierarchical_connections:
